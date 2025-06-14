@@ -1,5 +1,6 @@
 import re
-from base_parser import BaseParser 
+import json
+from parser.base_parser import BaseParser 
 
 class JSONLogParser(BaseParser):
     def parse(self, line):
