@@ -8,6 +8,16 @@ def extract_features_from_log(log_dict):
     message = log_dict.get("message","")
     timestamp = log_dict.get("timestamp","")
 
+    try:
+        ts = datetime.fromisoformat(timestamp)
+        hour = ts.hour 
+    except ValueError:
+        try:
+            ts = datetime.strptime(timestamp, "%b %d %H:%M:%S")
+            hour = ts.hour
+        except ValueError:
+            hour = -1
+
     # Basic Features 
     features = {
         "length": len(message),
@@ -15,7 +25,7 @@ def extract_features_from_log(log_dict):
         "num_upper": sum(c.isupper() for c in message),
         "contains_error": int("error" in message.lower()),
         "contains_failed": int("fail" in message.lower()),
-        "hour": datetime.fromisoformat(timestamp).hour if timestamp else -1
+        "hour": hour
     }
     return features
 
