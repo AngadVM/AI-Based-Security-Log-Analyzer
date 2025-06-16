@@ -4,7 +4,11 @@ import pandas as pd
 import json
 from parser.log_parser import parse_syslog 
 from ml_pipeline.preprocess import extract_features_from_log
+from elasticsearch import Elasticsearch 
+from datetime import datetime 
 
+# Connect to Elasticsearch
+es = Elasticsearch("http://localhost:9200")
 
 app = FastAPI()
 
@@ -16,24 +20,27 @@ async def ingest_log(request: Request):
     raw_body = await request.body()
     raw_text = raw_body.decode()
 
-    # Using a parser (syslog)
     parsed = parse_syslog(raw_text)
 
     # Adding timestamp if missing
     if 'timestamp' not in parsed:
-        parsed['timestamp'] = "2025-06-16T00:00:00"
+        parsed['timestamp'] = datetime.utcnow().isoformat()
 
-
-    # Extract features + run inference
+    # Inference
     feats = extract_features_from_log(parsed)
     df = pd.DataFrame([feats])
     prediction = model.predict(df)[0]
     label = "anomaly" if prediction == -1 else "normal"
 
-    # Combine parsed + label
-    parsed["prediction"] = label 
+    
+    parsed["prediction"] = label
+    parsed["ingested_at"] = datetime.utcnow().isoformat()
+    parsed["raw"] = raw_text 
 
-    print(f"Log received | Predicted: {label} | Data: {parsed}")
+    # Store in Elasticsearch
+    es.index(index="classified-logs", document=parsed)
+
+    print(f"Stored log | Predicted: {label} | Raw: {raw_text}")
     return {"status": "received", "label": label}
 
    
