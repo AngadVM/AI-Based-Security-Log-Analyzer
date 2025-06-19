@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
-import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
+import { PieChart, LineChart, Line, Pie, Cell, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
+import LiveStream from "./components/LiveStream";
 
 function App() {
   const [logs, setLogs] = useState([]);
@@ -9,12 +10,24 @@ function App() {
   const [error, setError] = useState(null);
   const [timeFilter, setTimeFilter] = useState("all");
   const [darkMode, setDarkMode] = useState(false);
+  const [selectedSource, setSelectedSource] = useState("all");
+  const [sources, setSources] = useState([]);
 
   const fetchLogs = async () => {
     try {
       const res = await axios.get("http://localhost:8000/logs");
-      if (Array.isArray(res.data)) setLogs(res.data);
-      else setLogs([]);
+      if (Array.isArray(res.data)) {
+        setLogs(res.data);
+        const sourceSet = new Set();
+        res.data.forEach(log => {
+          const match = log.raw?.match(/\b([a-zA-Z0-9_-]+)\[\d+\]/);
+          if (match) sourceSet.add(match[1]);
+        });
+        setSources(Array.from(sourceSet));
+      } else {
+        setLogs([]);
+        setSources([]);
+      }
     } catch (err) {
       setError(err.message || "Unknown error");
       setLogs([]);
@@ -23,7 +36,7 @@ function App() {
 
   useEffect(() => {
     fetchLogs();
-    const interval = setInterval(fetchLogs, 10000);
+    const interval = setInterval(fetchLogs, 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -42,7 +55,7 @@ function App() {
   const filterByTime = (log) => {
     if (!log.timestamp) return false;
     const logTime = new Date(log.timestamp);
-    if (isNaN(logTime)) return false;
+    if (isNaN(logTime.getTime())) return false;
     switch (timeFilter) {
       case "5m": return (now.getTime() - logTime.getTime()) <= 5 * 60 * 1000;
       case "1h": return (now.getTime() - logTime.getTime()) <= 60 * 60 * 1000;
@@ -51,11 +64,14 @@ function App() {
     }
   };
 
-  const filteredLogs = logs.filter(log =>
-    (filter === "all" || log.prediction === filter) &&
-    (searchQuery === "" || (log.raw && log.raw.toLowerCase().includes(searchQuery.toLowerCase()))) &&
-    filterByTime(log)
-  );
+  const filteredLogs = logs.filter(log => {
+    const matchesFilter = filter === "all" || log.prediction === filter;
+    const matchesSearch = searchQuery === "" || (log.raw && log.raw.toLowerCase().includes(searchQuery.toLowerCase()));
+    const matchesTime = filterByTime(log);
+    const logSource = log.raw?.match(/\b([a-zA-Z0-9_-]+)\[\d+\]/)?.[1];
+    const matchesSource = selectedSource === "all" || logSource === selectedSource;
+    return matchesFilter && matchesSearch && matchesTime && matchesSource;
+  });
 
   const anomalyCount = filteredLogs.filter(l => l.prediction === "anomaly").length;
   const normalCount = filteredLogs.filter(l => l.prediction === "normal").length;
@@ -78,6 +94,24 @@ function App() {
   });
   for (const key in countsByHour) barData.push(countsByHour[key]);
 
+  const getTimeSeriesData = (logs) => {
+    const grouped = {};
+
+    logs.forEach(log => {
+      const date = new Date(log.timestamp);
+      if (isNaN(date)) return;
+
+      const key = `${date.getHours().toString().padStart(2, '0')}:${Math.floor(date.getMinutes() / 5) * 5}`; // group per 5min
+
+      if (!grouped[key]) grouped[key] = { minute: key, anomaly: 0, normal: 0 };
+
+      if (log.prediction === "anomaly") grouped[key].anomaly++;
+      else grouped[key].normal++;
+    });
+
+    return Object.values(grouped).sort((a, b) => a.minute.localeCompare(b.minute));
+  };
+
   const exportCSV = () => {
     const header = "timestamp,raw,prediction\n";
     const rows = filteredLogs.map(log => `${log.timestamp},${JSON.stringify(log.raw)},${log.prediction}`).join("\n");
@@ -90,6 +124,7 @@ function App() {
     a.click();
   };
 
+  
   return (
     <div className="min-h-screen bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 p-6">
       <div className="flex justify-between items-center mb-4">
@@ -109,8 +144,19 @@ function App() {
         placeholder="Search logs..."
         value={searchQuery}
         onChange={e => setSearchQuery(e.target.value)}
-        className="mb-4 p-2 border border-gray-300 dark:bg-gray-800 dark:border-gray-600 rounded w-full"
+        className="mb-2 p-2 border border-gray-300 dark:bg-gray-800 dark:border-gray-600 rounded w-full"
       />
+
+      <select
+        value={selectedSource}
+        onChange={e => setSelectedSource(e.target.value)}
+        className="mb-4 p-2 border border-gray-300 dark:bg-gray-800 dark:border-gray-600 rounded w-full sm:w-auto"
+      >
+        <option value="all">All Sources</option>
+        {sources.map(src => (
+          <option key={src} value={src}>{src}</option>
+        ))}
+      </select>
 
       <div className="flex gap-4 mb-4 flex-wrap">
         <button onClick={() => setFilter("all")} className="px-4 py-2 bg-blue-500 text-white rounded">All</button>
@@ -134,6 +180,26 @@ function App() {
 
       <div className="mb-4 text-sm text-gray-700 dark:text-gray-300">
         Showing <b>{filteredLogs.length}</b> logs ({filter}) from <b>{logs.length}</b> total logs.
+      </div>
+
+      <div className="mb-6">
+        <h2 className="text-lg font-semibold mb-2">🔴 Real-Time Log Stream</h2>
+        <LiveStream logs={logs} />
+      </div>
+
+      <div className="bg-white dark:bg-gray-800 p-4 rounded shadow mb-6">
+        <h2 className="text-lg font-semibold mb-2">📈 Anomaly Trend Over Time</h2>
+        <ResponsiveContainer width="100%" height={300}>
+          <LineChart data={getTimeSeriesData(filteredLogs)}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="minute" />
+            <YAxis allowDecimals={false} />
+            <Tooltip />
+            <Legend />
+            <Line type="monotone" dataKey="normal" stroke="#22C55E" />
+            <Line type="monotone" dataKey="anomaly" stroke="#EF4444" />
+          </LineChart>
+        </ResponsiveContainer>
       </div>
 
       <div className="bg-white dark:bg-gray-800 p-4 rounded shadow mb-6">
@@ -173,6 +239,11 @@ function App() {
             <div className={`mt-2 font-bold ${log.prediction === "anomaly" ? "text-red-600" : "text-green-600"}`}>
               {log.prediction.toUpperCase()}
             </div>
+            {log.threat_type && (
+              <div className="text-sm italic text-purple-500 mt-1">
+                Threat: {log.threat_type}
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -181,4 +252,3 @@ function App() {
 }
 
 export default App;
-
