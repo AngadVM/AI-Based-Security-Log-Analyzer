@@ -1,47 +1,37 @@
 import os
-import pandas as pd 
-import json 
+import pandas as pd
+import json
+
+from datetime import datetime
 import re
-from datetime import datetime 
+
+def parse_timestamp(text):
+    try:
+        return datetime.strptime(text[:15], "%b %d %H:%M:%S").replace(year=datetime.now().year).isoformat()
+    except Exception:
+        return None
+
+def extract_source(text):
+    match = re.search(r"([a-zA-Z0-9_-]+)\[\d+\]:", text)
+    return match.group(1) if match else "unknown"
+
 
 def extract_features_from_log(log_dict):
-    message = log_dict.get("message","")
-    timestamp = log_dict.get("timestamp","")
+    message = log_dict.get("raw", "")
+    timestamp = log_dict.get("timestamp", "")
 
+    length = len(message)
+    contains_ip = int(bool(re.search(r"\b\d{1,3}(?:\.\d{1,3}){3}\b", message)))
+
+    hour = -1
     try:
-        ts = datetime.fromisoformat(timestamp)
-        hour = ts.hour 
-    except ValueError:
-        try:
-            ts = datetime.strptime(timestamp, "%b %d %H:%M:%S")
-            hour = ts.hour
-        except ValueError:
-            hour = -1
+        hour = datetime.fromisoformat(timestamp).hour
+    except:
+        pass
 
-    # Basic Features 
-    features = {
-        "length": len(message),
-        "num_digits": sum(c.isdigit() for c in message),
-        "num_upper": sum(c.isupper() for c in message),
-        "contains_error": int("error" in message.lower()),
-        "contains_failed": int("fail" in message.lower()),
-        "hour": hour
+    return {
+        "length": length,
+        "hour": hour,
+        "contains_ip": contains_ip
     }
-    return features
-
-def preprocess_logs(input_dir="data/parsed_logs"):
-    all_features = []
-
-    for filename in os.listdir(input_dir):
-        if filename.endswith(".json"):
-            with open(os.path.join(input_dir, filename)) as f:
-                for line in f:
-                    try:
-                        log = json.loads(line)
-                        feats = extract_features_from_log(log)
-                        all_features.append(feats)
-                    except Exception:
-                        continue
-
-    return pd.DataFrame(all_features)
 
