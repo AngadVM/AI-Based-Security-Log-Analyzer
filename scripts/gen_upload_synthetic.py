@@ -95,16 +95,16 @@ def upload_logs_to_es(logs):
             })
             count += 1
         except Exception as e:
-            print(f"⚠️ Failed to enrich log: {e}")
+            print(f" Failed to enrich log: {e}")
 
     if actions:
         helpers.bulk(es, actions)
-        print(f"✅ Uploaded {count} synthetic logs to Elasticsearch")
+        print(f" Uploaded {count} synthetic logs to Elasticsearch")
 
 if __name__ == "__main__":
-    print("🔧 Generating synthetic logs...")
+    print(" Generating synthetic logs...")
     synthetic_logs = generate_synthetic_logs(total=500, anomaly_ratio=0.3)
-    print("📤 Uploading logs to Elasticsearch...")
+    print(" Uploading logs to Elasticsearch...")
     upload_logs_to_es(synthetic_logs)
-    print("🚀 Done.")
+    print(" Done.")
 

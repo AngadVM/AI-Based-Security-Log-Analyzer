@@ -69,18 +69,18 @@ def upload_to_es(logs, es_url="http://localhost:9200", index_name="classified-lo
             enriched["ingested_at"] = datetime.utcnow().isoformat()
             actions.append({"_index": index_name, "_source": enriched})
         except Exception as e:
-            print(f"⚠️ Error processing log: {log['raw']}\n{e}")
+            print(f" Error processing log: {log['raw']}\n{e}")
 
     if actions:
         bulk(es, actions)
-        print(f"✅ Uploaded {len(actions)} logs to index '{index_name}'")
+        print(f" Uploaded {len(actions)} logs to index '{index_name}'")
     else:
-        print("❌ No logs uploaded.")
+        print(" No logs uploaded.")
 
 
 if __name__ == "__main__":
     print("🔧 Generating synthetic logs...")
     synthetic_logs = generate_logs(n=1000, anomaly_ratio=0.3)
-    print("📦 Uploading to Elasticsearch...")
+    print(" Uploading to Elasticsearch...")
     upload_to_es(synthetic_logs)
 
