@@ -53,17 +53,17 @@ def main():
     df = load_parsed_logs(folder)
 
     if df.empty:
-        print("❌ No valid log entries found to train on.")
+        print(" No valid log entries found to train on.")
         return
 
-    print(f"✅ Loaded {len(df)} valid log entries.")
+    print(f" Loaded {len(df)} valid log entries.")
 
     model = IsolationForest(n_estimators=100, contamination=0.05, random_state=42)
     model.fit(df)
 
     model_path = "ml_pipeline/isolation_forest.joblib"
     dump(model, model_path)
-    print(f"✅ Isolation Forest model saved to {model_path}")
+    print(f" Isolation Forest model saved to {model_path}")
 
 if __name__ == "__main__":
     main()

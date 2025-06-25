@@ -36,9 +36,9 @@ model.fit(X_train, y_train)
 
 # --- Evaluation ---
 y_pred = model.predict(X_test)
-print("📊 Classification Report:\n", classification_report(y_test, y_pred))
+print(" Classification Report:\n", classification_report(y_test, y_pred))
 
 # --- Save Model ---
 joblib.dump(model, "ml_pipeline/classic_classifier.joblib")
-print("✅ Model saved as classic_classifier.joblib")
+print(" Model saved as classic_classifier.joblib")
 
