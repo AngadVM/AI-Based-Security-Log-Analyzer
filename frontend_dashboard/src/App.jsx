@@ -1,38 +1,33 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
-import { PieChart, LineChart, Line, Pie, Cell, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
+import {
+  PieChart, Pie, Cell, Tooltip, Legend,
+  AreaChart, Area,
+  BarChart, Bar,
+  XAxis, YAxis, CartesianGrid,
+  ResponsiveContainer
+} from "recharts";
 import LiveStream from "./components/LiveStream";
+
+const threatColors = {
+  brute_force: "#FF6B6B",
+  port_scan: "#FFD93D",
+  suspicious_login: "#6BCB77",
+  dos_attack: "#4D96FF",
+  malware_activity: "#C780FA",
+  normal: "#A0AEC0"
+};
 
 function App() {
   const [logs, setLogs] = useState([]);
   const [filter, setFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
-  const [error, setError] = useState(null);
   const [timeFilter, setTimeFilter] = useState("all");
-  const [darkMode, setDarkMode] = useState(false);
-  const [selectedSource, setSelectedSource] = useState("all");
-  const [sources, setSources] = useState([]);
-
-  const fetchLogs = async () => {
-    try {
-      const res = await axios.get("http://localhost:8000/logs");
-      if (Array.isArray(res.data)) {
-        setLogs(res.data);
-        const sourceSet = new Set();
-        res.data.forEach(log => {
-          const match = log.raw?.match(/\b([a-zA-Z0-9_-]+)\[\d+\]/);
-          if (match) sourceSet.add(match[1]);
-        });
-        setSources(Array.from(sourceSet));
-      } else {
-        setLogs([]);
-        setSources([]);
-      }
-    } catch (err) {
-      setError(err.message || "Unknown error");
-      setLogs([]);
-    }
-  };
+  const [error, setError] = useState(null);
+  const [selectedThreat, setSelectedThreat] = useState("all");
+  const [uploading, setUploading] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const logsPerPage = 20;
 
   useEffect(() => {
     fetchLogs();
@@ -40,25 +35,26 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
-  useEffect(() => {
-    const saved = localStorage.getItem("theme") === "dark";
-    setDarkMode(saved);
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem("theme", darkMode ? "dark" : "light");
-    if (darkMode) document.documentElement.classList.add("dark");
-    else document.documentElement.classList.remove("dark");
-  }, [darkMode]);
+  const fetchLogs = async () => {
+    try {
+      const res = await axios.get("http://localhost:8000/logs");
+      if (Array.isArray(res.data)) {
+        setLogs(res.data.filter(l => l.timestamp && l.raw));
+      } else {
+        setLogs([]);
+      }
+    } catch (err) {
+      setError("Failed to fetch logs");
+    }
+  };
 
   const now = new Date();
   const filterByTime = (log) => {
-    if (!log.timestamp) return false;
     const logTime = new Date(log.timestamp);
-    if (isNaN(logTime.getTime())) return false;
+    if (isNaN(logTime)) return false;
     switch (timeFilter) {
-      case "5m": return (now.getTime() - logTime.getTime()) <= 5 * 60 * 1000;
-      case "1h": return (now.getTime() - logTime.getTime()) <= 60 * 60 * 1000;
+      case "5m": return now - logTime <= 5 * 60 * 1000;
+      case "1h": return now - logTime <= 60 * 60 * 1000;
       case "today": return now.toDateString() === logTime.toDateString();
       default: return true;
     }
@@ -66,185 +62,148 @@ function App() {
 
   const filteredLogs = logs.filter(log => {
     const matchesFilter = filter === "all" || log.prediction === filter;
-    const matchesSearch = searchQuery === "" || (log.raw && log.raw.toLowerCase().includes(searchQuery.toLowerCase()));
-    const matchesTime = filterByTime(log);
-    const logSource = log.raw?.match(/\b([a-zA-Z0-9_-]+)\[\d+\]/)?.[1];
-    const matchesSource = selectedSource === "all" || logSource === selectedSource;
-    return matchesFilter && matchesSearch && matchesTime && matchesSource;
+    const matchesSearch = !searchQuery || log.raw.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesThreat = selectedThreat === "all" || log.threat_type === selectedThreat;
+    return matchesFilter && matchesSearch && matchesThreat && filterByTime(log);
   });
 
-  const anomalyCount = filteredLogs.filter(l => l.prediction === "anomaly").length;
-  const normalCount = filteredLogs.filter(l => l.prediction === "normal").length;
+  const totalPages = Math.ceil(filteredLogs.length / logsPerPage);
+  const paginatedLogs = filteredLogs.slice((currentPage - 1) * logsPerPage, currentPage * logsPerPage);
 
   const pieData = [
-    { name: "Anomaly", value: anomalyCount },
-    { name: "Normal", value: normalCount }
+    { name: "Anomaly", value: filteredLogs.filter(l => l.prediction === "anomaly").length },
+    { name: "Normal", value: filteredLogs.filter(l => l.prediction === "normal").length }
   ];
 
-  const barData = [];
-  const countsByHour = {};
-  filteredLogs.forEach(log => {
-    if (!log.timestamp) return;
-    const logTime = new Date(log.timestamp);
-    const hour = logTime.getHours();
-    const key = `${hour}:00`;
-    countsByHour[key] = countsByHour[key] || { hour: key, anomaly: 0, normal: 0 };
-    if (log.prediction === "anomaly") countsByHour[key].anomaly++;
-    else countsByHour[key].normal++;
-  });
-  for (const key in countsByHour) barData.push(countsByHour[key]);
-
-  const getTimeSeriesData = (logs) => {
-    const grouped = {};
-
-    logs.forEach(log => {
-      const date = new Date(log.timestamp);
-      if (isNaN(date)) return;
-
-      const key = `${date.getHours().toString().padStart(2, '0')}:${Math.floor(date.getMinutes() / 5) * 5}`; // group per 5min
-
-      if (!grouped[key]) grouped[key] = { minute: key, anomaly: 0, normal: 0 };
-
-      if (log.prediction === "anomaly") grouped[key].anomaly++;
-      else grouped[key].normal++;
+  const areaData = (() => {
+    const timeline = {};
+    filteredLogs.forEach(log => {
+      const dt = new Date(log.timestamp);
+      if (!isNaN(dt)) {
+        const key = dt.getHours().toString().padStart(2, '0') + ":" + dt.getMinutes().toString().padStart(2, '0');
+        timeline[key] = (timeline[key] || 0) + 1;
+      }
     });
+    return Object.entries(timeline).map(([time, count]) => ({ time, count }));
+  })();
 
-    return Object.values(grouped).sort((a, b) => a.minute.localeCompare(b.minute));
+  const barData = (() => {
+    const counts = {};
+    filteredLogs.forEach(log => {
+      const t = log.threat_type || "normal";
+      counts[t] = (counts[t] || 0) + 1;
+    });
+    return Object.keys(counts).map(k => ({ type: k, count: counts[k] }));
+  })();
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setUploading(true);
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+      await axios.post("http://localhost:8000/upload", formData);
+      setTimeout(fetchLogs, 3000);
+    } catch (err) {
+      alert("Upload failed");
+    } finally {
+      setUploading(false);
+    }
   };
 
-  const exportCSV = () => {
-    const header = "timestamp,raw,prediction\n";
-    const rows = filteredLogs.map(log => `${log.timestamp},${JSON.stringify(log.raw)},${log.prediction}`).join("\n");
-    const csv = header + rows;
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "logs.csv";
-    a.click();
-  };
-
-  
   return (
-    <div className="min-h-screen bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 p-6">
-      <div className="flex justify-between items-center mb-4">
-        <h1 className="text-2xl font-bold">Security Log Dashboard</h1>
-        <button
-          onClick={() => setDarkMode(!darkMode)}
-          className="px-4 py-2 rounded border text-sm bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:text-white dark:border-gray-500"
-        >
-          {darkMode ? "☀ Light Mode" : "🌙 Dark Mode"}
-        </button>
+    <div className="min-h-screen bg-gray-900 text-white p-6">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold">🚨 Log Analyzer Dashboard</h1>
+        <input type="file" accept=".log,.json" onChange={handleFileUpload} disabled={uploading} className="text-sm bg-gray-800 p-2 rounded" />
       </div>
 
-      {error && <div className="mb-4 p-2 bg-red-100 text-red-800 rounded">Error: {error}</div>}
-
-      <input
-        type="text"
-        placeholder="Search logs..."
-        value={searchQuery}
-        onChange={e => setSearchQuery(e.target.value)}
-        className="mb-2 p-2 border border-gray-300 dark:bg-gray-800 dark:border-gray-600 rounded w-full"
-      />
-
-      <select
-        value={selectedSource}
-        onChange={e => setSelectedSource(e.target.value)}
-        className="mb-4 p-2 border border-gray-300 dark:bg-gray-800 dark:border-gray-600 rounded w-full sm:w-auto"
-      >
-        <option value="all">All Sources</option>
-        {sources.map(src => (
-          <option key={src} value={src}>{src}</option>
-        ))}
-      </select>
-
-      <div className="flex gap-4 mb-4 flex-wrap">
-        <button onClick={() => setFilter("all")} className="px-4 py-2 bg-blue-500 text-white rounded">All</button>
-        <button onClick={() => setFilter("normal")} className="px-4 py-2 bg-green-600 text-white rounded">Normal</button>
-        <button onClick={() => setFilter("anomaly")} className="px-4 py-2 bg-red-600 text-white rounded">Anomaly</button>
-        <button onClick={exportCSV} className="ml-auto px-4 py-2 bg-yellow-500 text-white rounded">⬇ Export CSV</button>
+      <div className="flex flex-wrap gap-4 mb-4">
+        <input type="text" placeholder="Search logs..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="bg-gray-800 p-2 rounded w-full sm:w-60" />
+        <select value={filter} onChange={e => setFilter(e.target.value)} className="bg-gray-800 p-2 rounded">
+          <option value="all">All</option>
+          <option value="normal">Normal</option>
+          <option value="anomaly">Anomaly</option>
+        </select>
+        <select value={timeFilter} onChange={e => setTimeFilter(e.target.value)} className="bg-gray-800 p-2 rounded">
+          <option value="all">All Time</option>
+          <option value="5m">Last 5 Min</option>
+          <option value="1h">Last 1 Hour</option>
+          <option value="today">Today</option>
+        </select>
+        <select value={selectedThreat} onChange={e => setSelectedThreat(e.target.value)} className="bg-gray-800 p-2 rounded">
+          <option value="all">All Threats</option>
+          {Object.keys(threatColors).map(type => <option key={type} value={type}>{type}</option>)}
+        </select>
       </div>
 
-      {anomalyCount > 5 && (
-        <div className="mb-4 p-4 bg-red-100 border border-red-400 text-red-800 rounded">
-          ⚠️ High number of anomalies detected: <strong>{anomalyCount}</strong>
+      <LiveStream onNewLog={log => setLogs(prev => [log, ...prev])} />
+
+      <div className="grid md:grid-cols-2 gap-6">
+        <div className="bg-gray-800 p-4 rounded shadow">
+          <h2 className="text-lg font-semibold mb-2">📊 Anomaly Distribution</h2>
+          <ResponsiveContainer width="100%" height={250}>
+            <PieChart>
+              <Pie data={pieData} dataKey="value" nameKey="name" outerRadius={80} label>
+                <Cell fill="#EF4444" />
+                <Cell fill="#10B981" />
+              </Pie>
+              <Tooltip />
+              <Legend />
+            </PieChart>
+          </ResponsiveContainer>
         </div>
-      )}
 
-      <div className="flex gap-4 mb-4 flex-wrap">
-        <button onClick={() => setTimeFilter("all")} className="px-4 py-2 bg-gray-300 dark:bg-gray-700 text-black dark:text-white rounded">All Time</button>
-        <button onClick={() => setTimeFilter("5m")} className="px-4 py-2 bg-gray-500 text-white rounded">Last 5 Min</button>
-        <button onClick={() => setTimeFilter("1h")} className="px-4 py-2 bg-gray-600 text-white rounded">Last 1 Hour</button>
-        <button onClick={() => setTimeFilter("today")} className="px-4 py-2 bg-gray-800 text-white rounded">Today</button>
+        <div className="bg-gray-800 p-4 rounded shadow">
+          <h2 className="text-lg font-semibold mb-2">📈 Log Activity Over Time</h2>
+          <ResponsiveContainer width="100%" height={250}>
+            <AreaChart data={areaData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="time" />
+              <YAxis />
+              <Tooltip />
+              <Legend />
+              <Area type="monotone" dataKey="count" stroke="#6366F1" fill="#A5B4FC" />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
       </div>
 
-      <div className="mb-4 text-sm text-gray-700 dark:text-gray-300">
-        Showing <b>{filteredLogs.length}</b> logs ({filter}) from <b>{logs.length}</b> total logs.
-      </div>
-
-      <div className="mb-6">
-        <h2 className="text-lg font-semibold mb-2">🔴 Real-Time Log Stream</h2>
-        <LiveStream logs={logs} />
-      </div>
-
-      <div className="bg-white dark:bg-gray-800 p-4 rounded shadow mb-6">
-        <h2 className="text-lg font-semibold mb-2">📈 Anomaly Trend Over Time</h2>
-        <ResponsiveContainer width="100%" height={300}>
-          <LineChart data={getTimeSeriesData(filteredLogs)}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="minute" />
-            <YAxis allowDecimals={false} />
-            <Tooltip />
-            <Legend />
-            <Line type="monotone" dataKey="normal" stroke="#22C55E" />
-            <Line type="monotone" dataKey="anomaly" stroke="#EF4444" />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-
-      <div className="bg-white dark:bg-gray-800 p-4 rounded shadow mb-6">
-        <h2 className="text-lg font-semibold mb-2">Anomaly Breakdown</h2>
+      <div className="bg-gray-800 p-4 rounded shadow my-6">
+        <h2 className="text-lg font-semibold mb-2">🔎 Threat Type Frequency</h2>
         <ResponsiveContainer width="100%" height={250}>
-          <PieChart>
-            <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>
-              <Cell fill="#EF4444" />
-              <Cell fill="#22C55E" />
-            </Pie>
-            <Tooltip />
-            <Legend />
-          </PieChart>
-        </ResponsiveContainer>
-      </div>
-
-      <div className="bg-white dark:bg-gray-800 p-4 rounded shadow mb-6">
-        <h2 className="text-lg font-semibold mb-2">Logs per Hour</h2>
-        <ResponsiveContainer width="100%" height={300}>
           <BarChart data={barData}>
             <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="hour" />
+            <XAxis dataKey="type" />
             <YAxis />
             <Tooltip />
             <Legend />
-            <Bar dataKey="normal" fill="#22C55E" />
-            <Bar dataKey="anomaly" fill="#EF4444" />
+            <Bar dataKey="count">
+              {barData.map((entry, index) => (
+                <Cell key={`cell-${index}`} fill={threatColors[entry.type] || "#8884d8"} />
+              ))}
+            </Bar>
           </BarChart>
         </ResponsiveContainer>
       </div>
 
       <div className="grid gap-4">
-        {filteredLogs.map((log, i) => (
-          <div key={i} className="p-4 bg-white dark:bg-gray-800 rounded shadow">
-            <div className="text-xs text-gray-500 dark:text-gray-400">{log.timestamp}</div>
+        {paginatedLogs.map((log, i) => (
+          <div key={i} className="p-4 bg-gray-800 rounded shadow">
+            <div className="text-xs text-gray-400">{log.timestamp}</div>
             <div className="font-mono text-sm">{log.raw}</div>
-            <div className={`mt-2 font-bold ${log.prediction === "anomaly" ? "text-red-600" : "text-green-600"}`}>
-              {log.prediction.toUpperCase()}
-            </div>
-            {log.threat_type && (
-              <div className="text-sm italic text-purple-500 mt-1">
-                Threat: {log.threat_type}
-              </div>
-            )}
+            <div className={`mt-2 font-bold ${log.prediction === "anomaly" ? "text-red-400" : "text-green-400"}`}>{log.prediction.toUpperCase()}</div>
+            {log.threat_type && <div className="text-sm italic text-purple-400 mt-1">Threat: {log.threat_type}</div>}
           </div>
+        ))}
+      </div>
+
+      <div className="flex justify-center mt-6 space-x-2">
+        {Array.from({ length: totalPages }, (_, i) => (
+          <button key={i} onClick={() => setCurrentPage(i + 1)} className={`px-3 py-1 rounded ${currentPage === i + 1 ? "bg-blue-500 text-white" : "bg-gray-700 text-white"}`}>
+            {i + 1}
+          </button>
         ))}
       </div>
     </div>
@@ -252,3 +211,4 @@ function App() {
 }
 
 export default App;
+
