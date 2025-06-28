@@ -1,12 +1,13 @@
-import os, tempfile
-import shutil
-from fastapi import FastAPI, Request, WebSocket
-from fastapi import UploadFile, File 
+import os, sys, tempfile
+from fastapi import FastAPI, Request, UploadFile, File, WebSocket
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from elasticsearch import Elasticsearch
 from datetime import datetime
-from backend_api.websocket_manager import manager
+
+from websocket_manager import manager
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from ml_pipeline.infer import infer_log
 
 # Connect to Elasticsearch
@@ -21,20 +22,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/")
+def root():
+    return {"message": "API is working"}
+
 @app.post("/ingest")
 async def ingest_log(request: Request):
     log_data = await request.json()
 
-    # Add fallback timestamp if missing
     if "timestamp" not in log_data:
         log_data["timestamp"] = datetime.utcnow().isoformat()
 
-    # Inference using Isolation Forest + RandomForestClassification 
     parsed = infer_log(log_data)
     parsed["ingested_at"] = datetime.utcnow().isoformat()
     await manager.broadcast(parsed)
 
-    # Store in Elasticsearch
     es.index(index="classified-logs", document=parsed)
 
     print(f"Stored log | Prediction: {parsed['prediction']} | Threat: {parsed['threat_type']}")
@@ -53,9 +55,12 @@ def get_logs(size: int = 100):
     except Exception as e:
         return {"error": str(e)}
 
+
 @app.post("/upload")
 async def upload_log_file(file: UploadFile = File(...)):
-    # Create a temp file
+    print("Received upload:", file.filename)
+    success_count = 0
+
     with tempfile.NamedTemporaryFile(delete=False) as tmp:
         content = await file.read()
         tmp.write(content)
@@ -74,25 +79,26 @@ async def upload_log_file(file: UploadFile = File(...)):
                 }
 
                 parsed = infer_log(log_obj)
+
+                if not parsed or not parsed.get("raw") or not parsed.get("timestamp"):
+                    continue
+
                 parsed["ingested_at"] = datetime.utcnow().isoformat()
-                await manager.broadcast(parsed)
 
                 es.index(index="classified-logs", document=parsed)
+                await manager.broadcast(parsed)
+                success_count += 1
                 print(f"Ingested from file: {parsed['prediction']} - {parsed['threat_type']}")
 
-        return {"status": "success", "message": f"{file.filename} processed."}
+        return {
+            "status": "success",
+            "message": f"{file.filename} processed with {success_count} logs."
+        }
 
     except Exception as e:
         return {"status": "error", "message": str(e)}
     finally:
         os.remove(temp_path)
-
-def parse_timestamp(raw_line):
-    try:
-        ts = datetime.strptime(raw_line[:15], "%b %d %H:%M:%S")
-        return ts.replace(year=datetime.now().year).isoformat()
-    except Exception:
-        return datetime.utcnow().isoformat()
 
 @app.websocket("/ws/logs")
 async def websocket_endpoint(websocket: WebSocket):
@@ -100,8 +106,6 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             await websocket.receive_text()
-            
-    except:
+    except Exception as e:
+        print(f"WebSocket error: {e}")
         manager.disconnect(websocket)
-
-

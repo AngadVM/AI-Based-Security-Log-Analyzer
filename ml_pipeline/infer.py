@@ -1,11 +1,12 @@
-
+import os
 import re
 import pandas as pd
 from datetime import datetime
 from joblib import load
 
 # Load trained classifier
-model = load("ml_pipeline/classic_classifier.joblib")
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "classic_classifier.joblib")
+model = load(MODEL_PATH)
 
 def parse_timestamp(raw):
     try:
