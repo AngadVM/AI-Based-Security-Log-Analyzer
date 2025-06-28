@@ -138,7 +138,10 @@ function App() {
         </select>
       </div>
 
-      <LiveStream onNewLog={log => setLogs(prev => [log, ...prev])} />
+      <div className="bg-gray-800 p-4 rounded shadow mb-6">
+        <h2 className="text-lg font-semibold mb-2">📡 Live Stream</h2>
+        <LiveStream onNewLog={log => setLogs(prev => [log, ...prev])} />
+      </div>
 
       <div className="grid md:grid-cols-2 gap-6">
         <div className="bg-gray-800 p-4 rounded shadow">
