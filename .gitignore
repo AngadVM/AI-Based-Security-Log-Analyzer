@@ -1,6 +1,45 @@
-venv
-n__pycache__/
-n*.pyc
-node_modules/
-data/
+# Node dependencies
+/frontend_dashboard/node_modules/
+/frontend_dashboard/dist/
+/frontend_dashboard/.vite/
 
+# Python virtual environments
+venv/
+.env
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pkl
+*.joblib
+
+# Logs and local data
+*.log
+*.csv
+*.jsonl
+*.db
+*.sqlite
+/data/parsed_logs/*
+!data/parsed_logs/.gitkeep
+
+# VSCode settings
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker artifacts
+#**/Dockerfile
+docker-compose.override.yml
+
+# Model directories (if not checked in)
+threat_classifier_model/
+*.pt
+
+# Jupyter Notebook checkpoints
+**/.ipynb_checkpoints
+
+.esdata/
