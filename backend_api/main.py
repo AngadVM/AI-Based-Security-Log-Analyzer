@@ -22,7 +22,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.websocket("/ws/logs")  # ✅ NEW WebSocket route
+@app.websocket("/ws/logs")  
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
     try:
@@ -49,7 +49,7 @@ async def upload_log_file(file: UploadFile = File(...)):
         enriched["ingested_at"] = datetime.utcnow().isoformat()
 
         es.index(index="classified-logs", document=enriched)
-        await manager.broadcast(enriched)  # ✅ WebSocket broadcast
+        await manager.broadcast(enriched) 
 
     return {"status": "uploaded"}
 
@@ -64,7 +64,7 @@ async def ingest_log(request: Request):
     parsed["ingested_at"] = datetime.utcnow().isoformat()
 
     es.index(index="classified-logs", document=parsed)
-    await manager.broadcast(parsed)  # ✅ WebSocket broadcast
+    await manager.broadcast(parsed)  
     return {"status": "received", "label": parsed["prediction"], "threat_type": parsed["threat_type"]}
 
 @app.get("/logs")
